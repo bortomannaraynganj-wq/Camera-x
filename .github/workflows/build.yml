@@ -1,0 +1,534 @@
+name: Build APK
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Create project files
+        run: |
+          mkdir -p EnhanceCam && cd EnhanceCam
+          mkdir -p .
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "EnhanceCam"
+          include(":app")
+          EOF
+          mkdir -p .
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+          mkdir -p .
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2g
+          EOF
+          mkdir -p app
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.bortoman.enhancecam"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.bortoman.enhancecam"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("androidx.camera:camera-core:1.3.4")
+              implementation("androidx.camera:camera-camera2:1.3.4")
+              implementation("androidx.camera:camera-lifecycle:1.3.4")
+              implementation("androidx.camera:camera-video:1.3.4")
+              implementation("androidx.camera:camera-view:1.3.4")
+              implementation("androidx.lifecycle:lifecycle-service:2.8.4")
+          }
+          EOF
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-feature android:name="android.hardware.camera" android:required="false" />
+              <uses-permission android:name="android.permission.CAMERA" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <application
+                  android:label="EnhanceCam"
+                  android:theme="@style/AppTheme">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:screenOrientation="portrait">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service
+                      android:name=".RecorderService"
+                      android:exported="false"
+                      android:foregroundServiceType="camera|microphone" />
+              </application>
+          </manifest>
+          EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.NoActionBar" />
+          </resources>
+          EOF
+          mkdir -p app/src/main/res/layout
+          cat > app/src/main/res/layout/activity_main.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent"
+              android:background="#000000">
+
+              <androidx.camera.view.PreviewView
+                  android:id="@+id/previewView"
+                  android:layout_width="match_parent"
+                  android:layout_height="match_parent" />
+
+              <Chronometer
+                  android:id="@+id/timer"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="top|center_horizontal"
+                  android:layout_marginTop="40dp"
+                  android:background="#80000000"
+                  android:padding="8dp"
+                  android:textColor="#FFFFFF"
+                  android:textSize="20sp"
+                  android:visibility="gone" />
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="bottom"
+                  android:background="#80000000"
+                  android:gravity="center"
+                  android:orientation="horizontal"
+                  android:padding="16dp">
+
+                  <Button
+                      android:id="@+id/torchBtn"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1" />
+
+                  <Button
+                      android:id="@+id/qualityBtn"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1" />
+
+                  <Button
+                      android:id="@+id/recordBtn"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1.4" />
+
+                  <Button
+                      android:id="@+id/switchBtn"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1" />
+              </LinearLayout>
+          </FrameLayout>
+          EOF
+          mkdir -p app/src/main/java/com/bortoman/enhancecam
+          cat > app/src/main/java/com/bortoman/enhancecam/MainActivity.kt <<'EOF'
+          package com.bortoman.enhancecam
+
+          import android.Manifest
+          import android.annotation.SuppressLint
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.os.Build
+          import android.os.Bundle
+          import android.view.GestureDetector
+          import android.view.MotionEvent
+          import android.view.ScaleGestureDetector
+          import android.view.View
+          import android.widget.Button
+          import android.widget.Chronometer
+          import android.widget.Toast
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.camera.core.Camera
+          import androidx.camera.core.CameraSelector
+          import androidx.camera.core.FocusMeteringAction
+          import androidx.camera.core.Preview
+          import androidx.camera.lifecycle.ProcessCameraProvider
+          import androidx.camera.view.PreviewView
+          import androidx.core.content.ContextCompat
+
+          class MainActivity : AppCompatActivity() {
+
+              private lateinit var previewView: PreviewView
+              private lateinit var recordBtn: Button
+              private lateinit var switchBtn: Button
+              private lateinit var torchBtn: Button
+              private lateinit var qualityBtn: Button
+              private lateinit var timer: Chronometer
+
+              private var cameraProvider: ProcessCameraProvider? = null
+              private var camera: Camera? = null
+              private var preview: Preview? = null
+              private var useBack = true
+              private var torchOn = false
+              private var qIndex = 2
+              private val qualityNames = listOf("HD", "Full HD", "2K/সর্বোচ্চ")
+
+              private val permLauncher = registerForActivityResult(
+                  ActivityResultContracts.RequestMultiplePermissions()
+              ) { r ->
+                  if (r[Manifest.permission.CAMERA] == true) startCamera()
+                  else Toast.makeText(this, "ক্যামেরার অনুমতি দিন", Toast.LENGTH_LONG).show()
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_main)
+                  previewView = findViewById(R.id.previewView)
+                  recordBtn = findViewById(R.id.recordBtn)
+                  switchBtn = findViewById(R.id.switchBtn)
+                  torchBtn = findViewById(R.id.torchBtn)
+                  qualityBtn = findViewById(R.id.qualityBtn)
+                  timer = findViewById(R.id.timer)
+
+                  switchBtn.text = "ঘোরান"
+                  torchBtn.text = "টর্চ"
+                  qualityBtn.text = qualityNames[qIndex]
+                  render(RecorderService.recording)
+
+                  setupGestures()
+
+                  recordBtn.setOnClickListener { toggleRecording() }
+                  switchBtn.setOnClickListener {
+                      useBack = !useBack
+                      torchOn = false
+                      bindPreview()
+                  }
+                  torchBtn.setOnClickListener {
+                      torchOn = !torchOn
+                      camera?.cameraControl?.enableTorch(torchOn)
+                  }
+                  qualityBtn.setOnClickListener {
+                      qIndex = (qIndex + 1) % qualityNames.size
+                      qualityBtn.text = qualityNames[qIndex]
+                  }
+
+                  val perms = mutableListOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+                  if (Build.VERSION.SDK_INT <= 28) perms.add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                  if (Build.VERSION.SDK_INT >= 33) perms.add(Manifest.permission.POST_NOTIFICATIONS)
+                  val granted = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+                      PackageManager.PERMISSION_GRANTED
+                  if (granted) startCamera() else permLauncher.launch(perms.toTypedArray())
+              }
+
+              override fun onStart() {
+                  super.onStart()
+                  RecorderService.listener = { render(it) }
+                  render(RecorderService.recording)
+              }
+
+              override fun onStop() {
+                  super.onStop()
+                  RecorderService.listener = null
+              }
+
+              private fun render(on: Boolean) {
+                  recordBtn.text = if (on) "■ থামান" else "● রেকর্ড"
+                  switchBtn.isEnabled = !on
+                  qualityBtn.isEnabled = !on
+                  if (on) {
+                      timer.visibility = View.VISIBLE
+                      timer.base = RecorderService.startedAt
+                      timer.start()
+                  } else {
+                      timer.stop()
+                      timer.visibility = View.GONE
+                  }
+              }
+
+              private fun toggleRecording() {
+                  if (RecorderService.recording) {
+                      startService(
+                          Intent(this, RecorderService::class.java).setAction(RecorderService.ACTION_STOP)
+                      )
+                  } else {
+                      val i = Intent(this, RecorderService::class.java)
+                          .setAction(RecorderService.ACTION_START)
+                          .putExtra("back", useBack)
+                          .putExtra("q", qIndex)
+                      ContextCompat.startForegroundService(this, i)
+                  }
+              }
+
+              private fun startCamera() {
+                  val f = ProcessCameraProvider.getInstance(this)
+                  f.addListener({
+                      cameraProvider = f.get()
+                      bindPreview()
+                  }, ContextCompat.getMainExecutor(this))
+              }
+
+              private fun bindPreview() {
+                  val provider = cameraProvider ?: return
+                  preview?.let { provider.unbind(it) }
+                  val p = Preview.Builder().build()
+                  p.setSurfaceProvider(previewView.surfaceProvider)
+                  preview = p
+                  val selector = if (useBack) CameraSelector.DEFAULT_BACK_CAMERA
+                  else CameraSelector.DEFAULT_FRONT_CAMERA
+                  camera = provider.bindToLifecycle(this, selector, p)
+              }
+
+              @SuppressLint("ClickableViewAccessibility")
+              private fun setupGestures() {
+                  val scale = ScaleGestureDetector(this,
+                      object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                          override fun onScale(d: ScaleGestureDetector): Boolean {
+                              val c = camera ?: return true
+                              val z = c.cameraInfo.zoomState.value?.zoomRatio ?: 1f
+                              c.cameraControl.setZoomRatio(z * d.scaleFactor)
+                              return true
+                          }
+                      })
+                  val tap = GestureDetector(this,
+                      object : GestureDetector.SimpleOnGestureListener() {
+                          override fun onSingleTapUp(e: MotionEvent): Boolean {
+                              val p = previewView.meteringPointFactory.createPoint(e.x, e.y)
+                              camera?.cameraControl?.startFocusAndMetering(
+                                  FocusMeteringAction.Builder(p).build()
+                              )
+                              return true
+                          }
+                      })
+                  previewView.setOnTouchListener { v, e ->
+                      scale.onTouchEvent(e)
+                      tap.onTouchEvent(e)
+                      if (e.action == MotionEvent.ACTION_UP) v.performClick()
+                      true
+                  }
+              }
+          }
+          EOF
+          mkdir -p app/src/main/java/com/bortoman/enhancecam
+          cat > app/src/main/java/com/bortoman/enhancecam/RecorderService.kt <<'EOF'
+          package com.bortoman.enhancecam
+
+          import android.Manifest
+          import android.annotation.SuppressLint
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.content.ContentValues
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.content.pm.ServiceInfo
+          import android.os.Build
+          import android.os.SystemClock
+          import android.provider.MediaStore
+          import android.widget.Toast
+          import androidx.camera.core.CameraSelector
+          import androidx.camera.lifecycle.ProcessCameraProvider
+          import androidx.camera.video.FallbackStrategy
+          import androidx.camera.video.MediaStoreOutputOptions
+          import androidx.camera.video.Quality
+          import androidx.camera.video.QualitySelector
+          import androidx.camera.video.Recorder
+          import androidx.camera.video.Recording
+          import androidx.camera.video.VideoCapture
+          import androidx.camera.video.VideoRecordEvent
+          import androidx.core.app.NotificationCompat
+          import androidx.core.app.ServiceCompat
+          import androidx.core.content.ContextCompat
+          import androidx.lifecycle.LifecycleService
+          import java.text.SimpleDateFormat
+          import java.util.Locale
+
+          class RecorderService : LifecycleService() {
+
+              companion object {
+                  const val ACTION_START = "com.bortoman.enhancecam.START"
+                  const val ACTION_STOP = "com.bortoman.enhancecam.STOP"
+                  @Volatile var recording = false
+                  @Volatile var startedAt = 0L
+                  var listener: ((Boolean) -> Unit)? = null
+              }
+
+              private var rec: Recording? = null
+              private var provider: ProcessCameraProvider? = null
+              private var vc: VideoCapture<Recorder>? = null
+              private var starting = false
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  super.onStartCommand(intent, flags, startId)
+                  if (intent?.action == ACTION_STOP) {
+                      val r = rec
+                      if (r != null) r.stop() else closeService()
+                      return START_NOT_STICKY
+                  }
+                  if (!starting && rec == null) {
+                      starting = true
+                      enterForeground()
+                      begin(
+                          intent?.getBooleanExtra("back", true) ?: true,
+                          intent?.getIntExtra("q", 2) ?: 2
+                      )
+                  }
+                  return START_NOT_STICKY
+              }
+
+              private fun enterForeground() {
+                  val nm = getSystemService(NotificationManager::class.java)
+                  if (Build.VERSION.SDK_INT >= 26) {
+                      nm.createNotificationChannel(
+                          NotificationChannel("rec", "Recording", NotificationManager.IMPORTANCE_LOW)
+                      )
+                  }
+                  val stop = PendingIntent.getService(
+                      this, 0,
+                      Intent(this, RecorderService::class.java).setAction(ACTION_STOP),
+                      PendingIntent.FLAG_IMMUTABLE
+                  )
+                  val open = PendingIntent.getActivity(
+                      this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+                  )
+                  val n = NotificationCompat.Builder(this, "rec")
+                      .setSmallIcon(android.R.drawable.presence_video_online)
+                      .setContentTitle("EnhanceCam: ভিডিও রেকর্ড হচ্ছে")
+                      .setContentIntent(open)
+                      .addAction(0, "থামান", stop)
+                      .setOngoing(true)
+                      .build()
+                  val type = if (Build.VERSION.SDK_INT >= 30)
+                      ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                  else 0
+                  ServiceCompat.startForeground(this, 1, n, type)
+              }
+
+              private fun begin(back: Boolean, q: Int) {
+                  val f = ProcessCameraProvider.getInstance(this)
+                  f.addListener({
+                      val p = f.get()
+                      provider = p
+                      val quality = when (q) {
+                          0 -> Quality.HD
+                          1 -> Quality.FHD
+                          else -> Quality.HIGHEST
+                      }
+                      val recorder = Recorder.Builder()
+                          .setQualitySelector(
+                              QualitySelector.from(quality, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD))
+                          ).build()
+                      val b = VideoCapture.Builder(recorder)
+                      try {
+                          b.javaClass.getMethod("setVideoStabilizationEnabled", java.lang.Boolean.TYPE)
+                              .invoke(b, true)
+                      } catch (e: Exception) {
+                      }
+                      val v = b.build()
+                      vc = v
+                      val sel = if (back) CameraSelector.DEFAULT_BACK_CAMERA
+                      else CameraSelector.DEFAULT_FRONT_CAMERA
+                      try {
+                          p.bindToLifecycle(this, sel, v)
+                      } catch (e: Exception) {
+                          Toast.makeText(this, "ক্যামেরা চালু হয়নি", Toast.LENGTH_LONG).show()
+                          closeService()
+                          return@addListener
+                      }
+                      startRecording(v)
+                  }, ContextCompat.getMainExecutor(this))
+              }
+
+              @SuppressLint("MissingPermission")
+              private fun startRecording(v: VideoCapture<Recorder>) {
+                  val name = "EnhanceCam_" +
+                      SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
+                  val cv = ContentValues().apply {
+                      put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                      put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                      if (Build.VERSION.SDK_INT >= 29) {
+                          put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/EnhanceCam")
+                      }
+                  }
+                  val opts = MediaStoreOutputOptions.Builder(
+                      contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                  ).setContentValues(cv).build()
+                  var pending = v.output.prepareRecording(this, opts)
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+                      PackageManager.PERMISSION_GRANTED
+                  ) pending = pending.withAudioEnabled()
+
+                  rec = pending.start(ContextCompat.getMainExecutor(this)) { e ->
+                      when (e) {
+                          is VideoRecordEvent.Start -> {
+                              recording = true
+                              startedAt = SystemClock.elapsedRealtime()
+                              listener?.invoke(true)
+                          }
+                          is VideoRecordEvent.Finalize -> {
+                              recording = false
+                              listener?.invoke(false)
+                              val msg = if (e.hasError()) "ভিডিও সেভ হয়নি" else "গ্যালারিতে সেভ হয়েছে"
+                              Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                              rec = null
+                              vc?.let { provider?.unbind(it) }
+                              vc = null
+                              closeService()
+                          }
+                          else -> {}
+                      }
+                  }
+              }
+
+              private fun closeService() {
+                  ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                  stopSelf()
+              }
+          }
+          EOF
+      - name: Build APK
+        run: cd EnhanceCam && gradle assembleDebug --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: EnhanceCam-APK
+          path: EnhanceCam/app/build/outputs/apk/debug/app-debug.apk
