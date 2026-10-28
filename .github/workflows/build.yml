@@ -86,6 +86,9 @@ jobs:
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
               <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
               <application
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher"
+                  android:largeHeap="true"
                   android:label="EnhanceCam"
                   android:theme="@style/AppTheme">
                   <activity
@@ -123,12 +126,49 @@ jobs:
                   android:layout_width="match_parent"
                   android:layout_height="match_parent" />
 
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:layout_gravity="top"
+                  android:background="#80000000"
+                  android:orientation="horizontal"
+                  android:paddingTop="24dp">
+
+                  <Button
+                      android:id="@+id/orientBtn"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:textSize="11sp" />
+
+                  <Button
+                      android:id="@+id/viewBtn"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:textSize="11sp" />
+
+                  <Button
+                      android:id="@+id/boostBtn"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:textSize="11sp" />
+
+                  <Button
+                      android:id="@+id/lastBtn"
+                      android:layout_width="0dp"
+                      android:layout_height="wrap_content"
+                      android:layout_weight="1"
+                      android:textSize="11sp" />
+              </LinearLayout>
+
               <Chronometer
                   android:id="@+id/timer"
                   android:layout_width="wrap_content"
                   android:layout_height="wrap_content"
                   android:layout_gravity="top|center_horizontal"
-                  android:layout_marginTop="40dp"
+                  android:layout_marginTop="120dp"
                   android:background="#80000000"
                   android:padding="8dp"
                   android:textColor="#FFFFFF"
@@ -206,7 +246,9 @@ jobs:
           import android.Manifest
           import android.annotation.SuppressLint
           import android.content.ContentValues
+          import android.content.ActivityNotFoundException
           import android.content.Intent
+          import android.content.pm.ActivityInfo
           import android.content.pm.PackageManager
           import android.os.Build
           import android.os.Bundle
@@ -229,6 +271,8 @@ jobs:
           import androidx.camera.core.ImageCaptureException
           import androidx.camera.core.Preview
           import androidx.camera.core.UseCaseGroup
+          import androidx.camera.video.Quality
+          import androidx.camera.video.QualitySelector
           import androidx.camera.lifecycle.ProcessCameraProvider
           import androidx.camera.view.PreviewView
           import androidx.core.content.ContextCompat
@@ -245,6 +289,10 @@ jobs:
               private lateinit var sizeBtn: Button
               private lateinit var photoBtn: Button
               private lateinit var filterBtn: Button
+              private lateinit var orientBtn: Button
+              private lateinit var viewBtn: Button
+              private lateinit var boostBtn: Button
+              private lateinit var lastBtn: Button
               private lateinit var timer: Chronometer
 
               private var cameraProvider: ProcessCameraProvider? = null
@@ -258,8 +306,11 @@ jobs:
                   var torchOn = false
                   var qIndex = 2
                   var sizeMode = 0
+                  var orientMode = 0
+                  var fillView = true
               }
-              private val qualityNames = listOf("HD", "Full HD", "2K/সর্বোচ্চ")
+              private val qualityNames = listOf("HD", "Full HD", "2K/সর্বোচ্চ", "4K")
+              private val orientNames = listOf("অটো", "সোজা", "আড়াআড়ি")
               private val sizeNames = listOf("অটো", "9:16", "16:9")
 
               private val oriListener by lazy {
@@ -289,6 +340,10 @@ jobs:
                   photoBtn = findViewById(R.id.photoBtn)
                   filterBtn = findViewById(R.id.filterBtn)
                   timer = findViewById(R.id.timer)
+                  orientBtn = findViewById(R.id.orientBtn)
+                  viewBtn = findViewById(R.id.viewBtn)
+                  boostBtn = findViewById(R.id.boostBtn)
+                  lastBtn = findViewById(R.id.lastBtn)
 
                   switchBtn.text = "ঘোরান"
                   torchBtn.text = "টর্চ"
@@ -296,6 +351,12 @@ jobs:
                   filterBtn.text = "ফিল্টার: " + Fx.names[Fx.mode]
                   qualityBtn.text = qualityNames[qIndex]
                   sizeBtn.text = sizeNames[sizeMode]
+                  lastBtn.text = "শেষটা দেখুন"
+                  boostBtn.text = if (Cfg.boost) "কালার: অন" else "কালার: অফ"
+                  viewBtn.text = if (fillView) "ভিউ: ভরা" else "ভিউ: ছোট"
+                  previewView.scaleType =
+                      if (fillView) PreviewView.ScaleType.FILL_CENTER else PreviewView.ScaleType.FIT_CENTER
+                  applyOrientation()
                   render(RecorderService.recording)
 
                   setupGestures()
@@ -314,6 +375,53 @@ jobs:
                   qualityBtn.setOnClickListener {
                       qIndex = (qIndex + 1) % qualityNames.size
                       qualityBtn.text = qualityNames[qIndex]
+                      val c = camera
+                      if (qIndex == 3 && c != null &&
+                          !QualitySelector.getSupportedQualities(c.cameraInfo).contains(Quality.UHD)
+                      ) {
+                          Toast.makeText(
+                              this,
+                              "এই ফোনে আসল 4K রেকর্ড হয় না। Full HD-তে রেকর্ড হবে; কালার অন থাকলে শেষে 4K-তে আপস্কেল হবে (নতুন ডিটেইল বাড়বে না)",
+                              Toast.LENGTH_LONG
+                          ).show()
+                      }
+                  }
+                  orientBtn.setOnClickListener {
+                      orientMode = (orientMode + 1) % orientNames.size
+                      applyOrientation()
+                  }
+                  viewBtn.setOnClickListener {
+                      fillView = !fillView
+                      previewView.scaleType =
+                          if (fillView) PreviewView.ScaleType.FILL_CENTER else PreviewView.ScaleType.FIT_CENTER
+                      viewBtn.text = if (fillView) "ভিউ: ভরা" else "ভিউ: ছোট"
+                  }
+                  boostBtn.setOnClickListener {
+                      Cfg.boost = !Cfg.boost
+                      boostBtn.text = if (Cfg.boost) "কালার: অন" else "কালার: অফ"
+                      if (Cfg.boost) {
+                          Toast.makeText(
+                              this,
+                              "কালার অন: ছবি/ভিডিও সেভের পরে প্রসেস হবে, একটু সময় লাগবে",
+                              Toast.LENGTH_LONG
+                          ).show()
+                      }
+                  }
+                  lastBtn.setOnClickListener {
+                      val u = RecorderService.lastUri
+                      if (u == null) {
+                          Toast.makeText(this, "আগে ছবি বা ভিডিও তুলুন", Toast.LENGTH_SHORT).show()
+                      } else {
+                          try {
+                              startActivity(
+                                  Intent(Intent.ACTION_VIEW)
+                                      .setDataAndType(u, RecorderService.lastMime)
+                                      .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                              )
+                          } catch (e: ActivityNotFoundException) {
+                              Toast.makeText(this, "দেখার অ্যাপ পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+                          }
+                      }
                   }
                   sizeBtn.setOnClickListener {
                       sizeMode = (sizeMode + 1) % sizeNames.size
@@ -349,6 +457,15 @@ jobs:
                   super.onStop()
                   oriListener.disable()
                   RecorderService.listener = null
+              }
+
+              private fun applyOrientation() {
+                  orientBtn.text = "স্ক্রিন: " + orientNames[orientMode]
+                  requestedOrientation = when (orientMode) {
+                      1 -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+                      2 -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                      else -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                  }
               }
 
               private fun computeRotation(): Int {
@@ -389,6 +506,9 @@ jobs:
                           Intent(this, RecorderService::class.java).setAction(RecorderService.ACTION_STOP)
                       )
                   } else {
+                      val cam = camera
+                      Cfg.up4k = qIndex == 3 && cam != null &&
+                          !QualitySelector.getSupportedQualities(cam.cameraInfo).contains(Quality.UHD)
                       val i = Intent(this, RecorderService::class.java)
                           .setAction(RecorderService.ACTION_START)
                           .putExtra("back", useBack)
@@ -416,7 +536,29 @@ jobs:
                   ic.takePicture(opts, ContextCompat.getMainExecutor(this),
                       object : ImageCapture.OnImageSavedCallback {
                           override fun onImageSaved(r: ImageCapture.OutputFileResults) {
-                              Toast.makeText(this@MainActivity, "ছবি সেভ হয়েছে", Toast.LENGTH_SHORT).show()
+                              val u = r.savedUri
+                              if (u != null) {
+                                  RecorderService.lastUri = u
+                                  RecorderService.lastMime = "image/jpeg"
+                              }
+                              if (Cfg.boost && u != null) {
+                                  Toast.makeText(
+                                      this@MainActivity, "ছবি সেভ হয়েছে, কালার প্রসেস হচ্ছে...", Toast.LENGTH_SHORT
+                                  ).show()
+                                  Thread {
+                                      val o = PhotoBoost.process(applicationContext, u)
+                                      runOnUiThread {
+                                          if (o != null) {
+                                              RecorderService.lastUri = o
+                                              Toast.makeText(this@MainActivity, "কালার ছবি তৈরি হয়েছে", Toast.LENGTH_SHORT).show()
+                                          } else {
+                                              Toast.makeText(this@MainActivity, "কালার প্রসেস হয়নি, আসল ছবি আছে", Toast.LENGTH_SHORT).show()
+                                          }
+                                      }
+                                  }.start()
+                              } else {
+                                  Toast.makeText(this@MainActivity, "ছবি সেভ হয়েছে", Toast.LENGTH_SHORT).show()
+                              }
                           }
 
                           override fun onError(e: ImageCaptureException) {
@@ -500,6 +642,7 @@ jobs:
           import android.content.Intent
           import android.content.pm.PackageManager
           import android.content.pm.ServiceInfo
+          import android.net.Uri
           import android.os.Build
           import android.os.SystemClock
           import android.provider.MediaStore
@@ -530,6 +673,8 @@ jobs:
                   @Volatile var recording = false
                   @Volatile var startedAt = 0L
                   var listener: ((Boolean) -> Unit)? = null
+                  @Volatile var lastUri: Uri? = null
+                  @Volatile var lastMime: String = "video/mp4"
               }
 
               private var rec: Recording? = null
@@ -592,6 +737,7 @@ jobs:
                       val quality = when (q) {
                           0 -> Quality.HD
                           1 -> Quality.FHD
+                          3 -> Quality.UHD
                           else -> Quality.HIGHEST
                       }
                       val recorder = Recorder.Builder()
@@ -663,12 +809,28 @@ jobs:
                           is VideoRecordEvent.Finalize -> {
                               recording = false
                               listener?.invoke(false)
-                              val msg = if (e.hasError()) "ভিডিও সেভ হয়নি" else "গ্যালারিতে সেভ হয়েছে"
-                              Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                              val ok = !e.hasError()
+                              val saved: Uri? = if (ok) e.outputResults.outputUri else null
                               rec = null
                               vc?.let { provider?.unbind(it) }
                               vc = null
-                              closeService()
+                              if (saved != null) {
+                                  lastUri = saved
+                                  lastMime = "video/mp4"
+                              }
+                              if (saved != null && Cfg.boost && VideoBoost.available()) {
+                                  Toast.makeText(this, "ভিডিও সেভ হয়েছে, কালার প্রসেস হচ্ছে...", Toast.LENGTH_LONG).show()
+                                  VideoBoost.process(this, saved, Cfg.up4k) { out ->
+                                      if (out != null) lastUri = out
+                                      val m = if (out != null) "কালার ভিডিও তৈরি হয়েছে" else "কালার প্রসেস হয়নি, আসল ভিডিও আছে"
+                                      Toast.makeText(this, m, Toast.LENGTH_LONG).show()
+                                      closeService()
+                                  }
+                              } else {
+                                  val msg = if (ok) "গ্যালারিতে সেভ হয়েছে" else "ভিডিও সেভ হয়নি"
+                                  Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+                                  closeService()
+                              }
                           }
                           else -> {}
                       }
@@ -693,10 +855,222 @@ jobs:
               fun effect(forVideo: Boolean): CameraEffect? = null
           }
           EOF
+          mkdir -p app/src/main/java/com/bortoman/enhancecam
+          cat > app/src/main/java/com/bortoman/enhancecam/Boost.kt <<'EOF'
+          package com.bortoman.enhancecam
+
+          import android.content.ContentValues
+          import android.content.Context
+          import android.graphics.Bitmap
+          import android.graphics.BitmapFactory
+          import android.graphics.Canvas
+          import android.graphics.ColorMatrix
+          import android.graphics.ColorMatrixColorFilter
+          import android.graphics.Matrix
+          import android.graphics.Paint
+          import android.media.ExifInterface
+          import android.net.Uri
+          import android.os.Build
+          import android.provider.MediaStore
+          import java.text.SimpleDateFormat
+          import java.util.Locale
+
+          object Cfg {
+              @Volatile var boost = false
+              @Volatile var up4k = false
+          }
+
+          object PhotoBoost {
+              fun process(ctx: Context, src: Uri): Uri? {
+                  try {
+                      val cr = ctx.contentResolver
+                      var deg = 0
+                      cr.openInputStream(src)?.use { s ->
+                          val o = ExifInterface(s).getAttributeInt(
+                              ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
+                          )
+                          deg = when (o) {
+                              ExifInterface.ORIENTATION_ROTATE_90 -> 90
+                              ExifInterface.ORIENTATION_ROTATE_180 -> 180
+                              ExifInterface.ORIENTATION_ROTATE_270 -> 270
+                              else -> 0
+                          }
+                      }
+                      val bounds = BitmapFactory.Options()
+                      bounds.inJustDecodeBounds = true
+                      cr.openInputStream(src)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+                      var sample = 1
+                      while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 3200) sample *= 2
+                      val opts = BitmapFactory.Options()
+                      opts.inSampleSize = sample
+                      val bmp = cr.openInputStream(src)?.use { BitmapFactory.decodeStream(it, null, opts) }
+                          ?: return null
+
+                      val cm = ColorMatrix()
+                      cm.setSaturation(1.3f)
+                      val c = 1.12f
+                      val t = (-0.5f * c + 0.5f) * 255f
+                      cm.postConcat(
+                          ColorMatrix(
+                              floatArrayOf(
+                                  c, 0f, 0f, 0f, t,
+                                  0f, c, 0f, 0f, t,
+                                  0f, 0f, c, 0f, t,
+                                  0f, 0f, 0f, 1f, 0f
+                              )
+                          )
+                      )
+                      val paint = Paint()
+                      paint.colorFilter = ColorMatrixColorFilter(cm)
+                      val out = Bitmap.createBitmap(bmp.width, bmp.height, Bitmap.Config.ARGB_8888)
+                      Canvas(out).drawBitmap(bmp, 0f, 0f, paint)
+                      bmp.recycle()
+                      var fin = out
+                      if (deg != 0) {
+                          val m = Matrix()
+                          m.postRotate(deg.toFloat())
+                          fin = Bitmap.createBitmap(out, 0, 0, out.width, out.height, m, true)
+                          out.recycle()
+                      }
+                      val name = "EnhanceCam_color_" +
+                          SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
+                      val cv = ContentValues()
+                      cv.put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                      cv.put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                      if (Build.VERSION.SDK_INT >= 29) {
+                          cv.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/EnhanceCam")
+                      }
+                      val uri = cr.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv) ?: return null
+                      cr.openOutputStream(uri)?.use { fin.compress(Bitmap.CompressFormat.JPEG, 95, it) }
+                      fin.recycle()
+                      return uri
+                  } catch (e: Throwable) {
+                      return null
+                  }
+              }
+          }
+          EOF
+          mkdir -p app/src/main/java/com/bortoman/enhancecam
+          cat > app/src/main/java/com/bortoman/enhancecam/VideoBoost.kt <<'EOF'
+          package com.bortoman.enhancecam
+
+          import android.content.Context
+          import android.net.Uri
+
+          object VideoBoost {
+              fun available(): Boolean = false
+
+              fun process(ctx: Context, src: Uri, up4k: Boolean, done: (Uri?) -> Unit) {
+                  done(null)
+              }
+          }
+          EOF
+          mkdir -p app/src/main/res/mipmap-xxxhdpi
+          base64 -d > app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp <<'EOF'
+          UklGRtAVAABXRUJQVlA4WAoAAAAQAAAAvwAAvwAAQUxQSIYBAAABDzD/ERFCbm3b1LYdQyBUglKU
+          RmlKUYJQYBA4l+35/msW0f8JIGU7xxOynnOOQ6wrA9phvW1yyXZEU5eCZUrJsqViaEfpdUMTdVOT
+          dFtTVPWonabrgmboombpsmbriuYYFc3ipW4J0rBEaVmytC1FOmah2hzXbJ7rtsANW+SmLXHLlrlt
+          K9wBMhXhrobwbzoiXAMRr4lIbxYiXxtRrgN9UjGOqGH8i44JLwYmvpiYRLQw+cXGlJ9wwA8qyuEa
+          yn+vo8L3Bip+b6LSr2Oh8q9vo8qfx/nvvVHlz2Oh8q9votKvY6Di9zoqfK+h/PcqyuEIRQ82pvyE
+          hckvJiYRDUx80THhRcP4FxXjiAhDTzaiXAuRr4lIbwYiXh0RrobwbyrCXYQgdtsKt2yZm7bEDVvk
+          ui1wzea5anMc2UjcliItS5aGJUrdEqRm8RJZSLl1RbN0WTN0UdN1QVN1TkNbU0g9NUk3NFHXNF5H
+          WypknFKydClYSCLz5JKtcd5G68oErJdDUDvHkxJWUDggJBQAAPBfAJ0BKsAAwAA+TSCMRCKiIRg6
+          fkgoBMSxgXIBHfeZ9JvJft/N3yK/5v1R8dxq2ID0M2ROmP6pLoOS+5MiRh3HkLXkjfpP6atQ/bZl
+          dcnYX8CfziuH71lFqT2WEZLml+MgTGK7++rRBZnvqlNCOK7PCxVodrNh0yF34M69LuOl5hq1iOkW
+          ze3eUCB9mvoC51SteeLDKIOH7pcn6SpJapKXeEUf+XI3hAUizbuvb4x5KeaQNO1r7xksqxKGoo5V
+          btS/w8usRXL8pT4j7791Tnz/YUB61GTHDJTjgR+jvfVxgA1T9xe6YWteEtwK0Xi8zkFbIfvah4Tn
+          yQ+DTrXQHKIVepXMsqP7JZh1qu86bC98RyoyaSh0qSQJY/hCzJCffBTz5zM/xI5lfuLFK/VbfSDn
+          9PCYVhygqEVCJQY9Kj3R4N3n/cX0uvvCe+DHdlLxk8AOroRM5PhFEzyoeh4oc1yG+oDBQiyhjnMV
+          1fhvdYLjUABZ20h+5aOb2y/O3TGQG1ViWmn4UqdbVyBGntHP+Vyy8oq9ajygf5Er4Tg7760/LSre
+          BgNVp4vZulLDGQuxFPtGb2HP+Fb5B5ZkDFUjZw1nBIh/xwVcbknpBAqlIu2VtParL73M2+a6gzCp
+          HdtmOZLN10t69Q9gM/9+lguBQLywnq9uCR7pIYCHqq99pIDf5cBdsTrf6nAk5Eq5rhjiku/uOAsp
+          SOTaKtEWhT2HNpkorgn5oHGqDD9hg67AX904NsZjmNWu7eeMmPqquoQtRXeF8yS0nGQs4lvenWNO
+          9Gi5bv0YO+QGMLCaN9RClhnf52kXzmGnjXVsu2nx5ayCEP46gXg/QWQT1e8xaLL/0r2tC+PdH06E
+          t5C44A1aH4zzOAUMDCl4oSQPo5e6hEVCP1XpvvU2sq0Ti5zr0/2L4hUuQi7311f6MgSCkATJE+Xj
+          0CwhE4vfNc/qKyZkCmjxgdZY3D0XVW+YCD1A7pr89o/qrljd5O37owF0YGY+X62GqiVyIELsS540
+          JIjwPQyHUbbNb2P6iPDAAP7t9t/GO/wk30Be90vv4j789zVxtctD7Lhem0Cifa6Ymu24O0+xFEsu
+          gQfHorMzILOf1Q0q86+BwPgkf8RzHiRmx3llonNJ8EQ7YJYeIaey+IbejlDhVhWPW5lPtledP+qR
+          yQDBfisQPhLmJPODMDfti3ijMLTwksXv6/Z0OmigjA/u/TXySyjlJmJ3wiEF4RGkMz6aHh7JXcFN
+          v+D3JOyobtjT1qKfYTg+ZpVUPwZgHm/OzAs18kyN6H+DocyQ9eGDoCrhLsLj5a/FIKJ/1dXPp+T5
+          hRRo73dxx2Spbmq12POOnb+ikAvsz+G5zU1P+Afq4RS2ml4uZzKIlI1T+TGIk8RJCuK/EA+Jqn/E
+          Tfnezh8clKJbbNeV7JnV1J07/OYEGNl+4RUzEjNXGQML/vYH16sHMHzdCsBP4jamc8f3cJKMZ2kj
+          0Uo346OrS20bwl09ZMeB7lS+d9CYQEZzem1ABOEyGr9zSICrL9Pc7ki/4FTczcnrISHzrhfPrMhB
+          S37DfQT1Qgero1TGXwQmoL9G81iAX+VEk4EMEUfDVQuWK4Ea0ZSLyt6xkiQ3olBalIkCwkZsd2EM
+          6pUFxLaVpmq6cHztSuk9SYXXrJGBnZxCvZMB/nqBqKaJDrQ7qWwTAWOeDzwG9RHb8PWn2itRSV9f
+          WNdjecd6aCLno9HL5HCSJMlbm61UR9fYAdcikn+tFJ+fGhG4g1SD8P7Pv5R5Lm0pGKFgYVnTbgl/
+          4+AQqCLiGUQRzY9h5q9hybfMnpymBogQsyKZBJL+yYHB4gHFTwtJQMsytcKTQdQHmfX/AcYR/5Q9
+          +F1WpsvP2RC/aWcnNhCgexsLxrjFhtixDTMM2gZBiVDri78ceEu6IReKXGXXKBzwbxsbiFsUgQDB
+          wojWvhNLc1UzvGaWCLhyrjBD738FxTwtpdHGOz+BvidF2wqAQJbYzLneu+0Bm+prPURGS9j1RWk9
+          t1t/wMa8pbEtw5b2eaKvOR5UW3eDgHlo4yIdKtgDqzP2t6rqvLApj/Zj16bMXtQGyA7U5orRwgrP
+          BMeKh+tD4H0/ISnVL7OnlaUrZz3QtjZDwIQliDZLr68nfmd9NA2bDAibm9Mi4We0pr4/M+PvN4dX
+          BNGKzO0uJzPtkzcGEHnPOQsEqRrYRFxbYpuWWjREfhJUYjVSHKatiR3HX6qk2RF7D3+VBsU5yyNA
+          7G6OtcQlZgsn7Vb/6zPtZFCsFWkZQYqwoB6HYEgab5oyg9xgR+xPAw4XizDwVQPuCCUuh/VcKWpE
+          +BUmDMMGg5sTKXYWlCwq2xqikv6AqJ5NEzec8QViFXrTEoHqU+VSuCKITNxTYlymSsql1EdE2wDj
+          XNWUzRuBrQiUEfp0+Tq/FxlauRIQQsvuUewwVz8TCOh5CerC9H6eLSpjJX+vBVXW+DPPNXAv3bDx
+          Y/kVmK441SPt7416rANp8i05DUopByKIWEo6jgxKnRpLYGiuzmvjZHXbe9xyrY4R4KQyb1XQd66G
+          Bng2Gg1auvvcMlCvrsx3y//GW5Hv8ZcQFCeLITHkFabxO30Rrvyt+OXM9l+WTv6Nk8hjXyjCCy3+
+          roETyfJJpK9PcyaS6wjvT/tmphB4oE/mQGvtV96g6uBYk/VdQmr5ElmNqSJYqQiIvynwCg0G0eyK
+          1pZ1G1iVuqqehdKDVwb8mQLoInJd3j1fQChrgXSoxRCkYM5KIV19zDyuTQXQWuV7Dj6GjNm1kOcp
+          SnptYR6OqogE6stUk3txvR6XMgp7lnhg9aITukK4pvWDMVTgef4jI/h0UQS+C42De/f8AyRGbOsf
+          gwx2kItqam79AphFr9ywP2dagot35IKVnLg2iBNUuJh89JdwYkn9+HbB23D3qNLXMusWk2QiNTeO
+          5KiEya2JyciIr7iQNkOCupAmw5Nn2T0N7pl7Y9BfQwykKpZKl7QlLt92CwCp5uO7QGZTSWnf79r/
+          h4lqB+TknVu+ebl5clOtvlgKP1nipnFivEqE9iX5vxG4OF039sVZ9Aq53i69KxP8R/MQyCUDXr6n
+          qwPwF7kSTOHqw8zBAW4aZyeMB8ImBo5F3yvydWtBj+77ZxzeUzu66KToU5OVAuvnltWXwpPJbgCp
+          GJy0G/7K3q2rDrjXOzq6hygfzEeirWjX7n3na6RgqE4eKxmC7/qBqUY+lA/eMctX/sGYCiG+SDHX
+          1bv2FAFX5MkXx4PWuD54qtKIioBE6LctrFje40KbT1EmEuSIFSyC6SuDb+7dXgOdu9q8gsWqScyC
+          iegRPgS+aA2WGH1K8D/imIJYdx4xnC2NcfVkVZcsO4Ur/WVgmhGNcTrm3YgwlDZrsAw+A3PvqQC8
+          jH0MLktaFvQW6BgaWfvb5ndygxh1Y8gNe4YLlRH6KYyVOe3cfHlNq288qUDNc6VD82tXulO/nUHi
+          RUqDskcASDsA6VKG88JpldvkeGoSvHO2tqyhXJQiYiL/zTDhYynBST/OiW2rm4F6CfiJtfHGBumB
+          IXXJcAzkVZo3puA5OvLWY52s8nfLhnsE9sPEEzpKnxLD36hXIYTPSux4ucJv5FnkpC37XQBEkyDN
+          it1nOZB614TZVh4FbUnzZzNjNmfqRQWFjWF0z9F+ScWG2eGlXnVCRDrfnTKdnyAEWB6p2yTnFN3Y
+          bvTUEhU1SRlVIUwQhfc13SajoNVS0x4cjtiFN/8JKQUEyXkHdophbGIXLIbIU1qR8ycXZjaekFp3
+          OKhZQu6HNgnKO91gHFyFNylkCKINNp12CJCGTZYgA5B3s7o5S67BKEDllsW4AMnd/Lxw8iviZx1P
+          rMjsNCH3JgtPwrpE8Hx4lCaq07qMUQL2Cs9vKhxLJ1vAG5Tk7Mk256AR5tuBid0uq/xP8JmAKltj
+          TIsGVqLJXUQ8A4plunpGa28SnclqXXzphU18f3/dE2HyGw9vCQkJIKEXf3BWQqMZwI8Nq2ohpJ3A
+          syd9La9WPYY9LAyfZ914vO4NCBoBLlXvd+76XbeqsEtq6ibFmfnfTAQIPAGidJ9+nS6MXX9Z/rI1
+          0bu98Af1uCiAN6RidNnXA3TyxcIcRhOA9xmYN5nQICC724Lunb5cEtg2u8sFigLxzZmyFSbLN1Gi
+          Eaw53wccAzytG7uQzYSLXU4+XQ644YD1+wcDIjP8Irelt47DbMSJitUGqf2o0FzsVXD/Q1syRHFX
+          6VdcKTyVfLzLwz4iI9jY+jHCAo/rLMF+PcO905/BO7eiWI2vVjkOHmNFwc+6cdmBZMtKeRE8Anph
+          VmEkLn/lL9EAhYWYARJooIiodA5f5yamkwUHnfpho5dZRmlug9QCwoXCcNhCyvsnSP1/Lxo1UBqW
+          kgJCys3LxdpoY1io7qJkmpqq6UKSFN1AgFvzkfYzAyKzGxZwoS3Tq1TizTvodzN2I3q/fY/poHJ9
+          Oo8fl52xewCyis5bm+vy64IS/t6lcu+obwF/ctSyfILq0No9CKYg/wVeEliiMgMf3/ljgNZgcSOf
+          max/jR9+rdSYpAQ/SYFA/vhoxuiZfJXeGpyiG7YOnfbsnI/GIyKMaGMskgOh8wUX0Iq/v8339GIE
+          HSeRDbV+OUybfK0QtoFSfnrQedrlUpIrymi8tJxRpaUqnVTgGTQQ9idg3jwbOcJnM4t/f/ft0qCO
+          nGl+LzH+ySVnZynTbSF4Xl9ABfE/FE8qSssxFEw726ioImZvFpfUYIJ3zlt0V3FeBFa+x5HWoAKq
+          Af46pQVdUn9BdU20/Abz5+28J7YHE5lwaEvmam91LkzK/TsHsgwqRHPW0SMdyCgjuF9bkU/+eGh9
+          O7MqLAJj2M2zlfQ6wfmgjPjryug3lfoQsGj+NJPPXMSoPT+nEckhjeXYzr4AU7HMDek9+TcdoKLy
+          W7reaKwyidRPeuuGVSlGaJy4F4bCd/czh5KU0iaEB3ezHhitbRrtK5r60qa2Ur1nNnrEHPpSsWa9
+          BCZnJX84LdySpBMQpjS7JvKjX+gn6lUcKrB0TqNgTbzcM4NO3dLWWrV7GvbC6CLkF/o52vAPeofA
+          uzc0u51pOssm+cbWvlkV3ajjFhtTut4P2AHAzhzstNwViAAz1w8ws5YR2HuwtcA+3N9iUHKoJxG9
+          BiDIwnBo6DZXviRLyB8dbx3s9J8Lva83hQ1HJdPsf9VyG/3CwiP6aUdtMcSQ7rKS1kKppCjloVHO
+          78uSXhL1xjfmDksEWzbJJt9whzIKiQL7x7ArdnpO+Rj5pgNn+5rGsP/Gyl9cFVZzBTiJ9vt7xjQK
+          FGY4D4ZN/dw2XWTR3YAXTuyPyLLjDTk6sfcE792HAI4HtB6SOIP2tBKWpNST401T7N0Eq/ySRYA7
+          2fx6IenHhRHokF7Wp82eGgodBlhvOscqvJOWewcxNs+orNFTbyWUv1fhHjhn9nxU9ypwYzNRrBGV
+          ZH9i8v/2dxtiAk25AVFQ/tCknJwuGtkRgrHRlxHlLPsjO+tUTjhJnmYhGFlZMHFRCVHAnWxkm+DJ
+          vXFtj8GT2F18nRCY/Q7TR7/GrPfcSvzM9uj4+aa+qoFaqu+X4iBCVz4i0M2NU7xDfjHRGrlnJnrs
+          i96AStYBSzQ2YuKhAVVleHAjwrUSZJb9Rxft/zccJPz+A1Wwvsh8vXvd87f034xkd+5HompXS+De
+          jQEC4lzILiNfO+zKaO5a2c6QKeXBsltL+624Gn7lpNcTzJnD6h4TwdcYY/txxWFlvqJSr49zgHB3
+          bz9qCZZLVzTTJHqkO+AT7QCgAYJ4/HUfXb9KoTeE/SgkElOH16KxSy+x2EuqRSyDpw3Prcuo0hNm
+          CJ6naBMFVqlLsVB1/1n6RPwjK9oscH/7/3epVdcRjz43Y4oRSDvcUwnDgisdIWatmnTJMq0SGaig
+          5XbQWn0YSsAqn73Kh8GFWyli5FVfMRIiC+hxYkS6c1zZuHj3ni9ywAHDsaazN61/Mg4jH8ke4mg8
+          7lon962wx62wAkrm3M5Y2WT37PhmMnLKyTMYZrtfXtFy/K/D0XH3qJJh7Rb+DQ7a2lW+xi16IRWn
+          KuDgXt8ppeqm2/RHp0Fn/7RLmpLS1MjvEgectzlvFs3z3gaDbZV1eMx7RHV1Y6IyU7ZVPGsIka1K
+          O/0qn++eUZOJHkxdtK6B42DlGwfYck3iDvDqeC1nA8QikHlQ89ePcstG0Bc8ICAUc59fgX1QQVbR
+          igfsMaujZfH/HZUBWy9j+5FiK7FOKgG/25n23/Bbu9+7EfCKBa8t1D1anjOGbIGWlXswbqQEBBKN
+          DbpAFWm4y3RB1tvzHGCxB2RQEInUIgVMAoKGKGYFcMseo2QfNSHkghjGITeHIjrXgu72jvsm3c/3
+          1R3W9+QGa8Ex6DbmaVs6P6zQqQNGi/VOxP3UbPLS5+ctajD37tv6jKhz+qpHXeBw3JFqzTPP/v8F
+          H7dY6ckde2mGhphmwtfXOQRdbHRFcaG3zPQk1Uaiu1WsAgpVhhvLRC8t4gAaXB6uPHlXxJGqcOCN
+          Q1tbl571tNZIdZfvD90P9sPKRQXIrPvBHoH9Y3/+CDGgDigqCxK56T2OzGLaDOOR+S3srybM+hhD
+          4dpboacP8ePGnTTmr8QMgtg3uMDiHaF4/l77rtuxIlgm4uChhXimVj9IxZ760jusEHG+4nX8KuSF
+          8/uKyqgLR6l4WAhfQP/e9gSi+EoSi2/ck/Rq28p+iwIStKq44J0UaoBTzfglo+BDiRF7DNyqUHwo
+          43/gu/tgcNDNJNSyfTO30MRBUzbLWA9yQISWnPCApkR+ROaIcHDy6GfdE8a0zdpPQzdSUbFFXV7n
+          MCrOY6tCXZJQoXtT3eahzs0MSOfdDuiOhcbWNiCYVTl/td39s//+sV//+PF+m44kp+MEZxTGQQCZ
+          EI1fAAAA
+          EOF
       - name: Create filter version
         run: |
-          cp -r EnhanceCam EnhanceCam-F
-          cd EnhanceCam-F
+          cp -r EnhanceCam EnhanceCam-B
+          cd EnhanceCam-B
           mkdir -p app/src/main/java/com/bortoman/enhancecam
           cat > app/src/main/java/com/bortoman/enhancecam/Fx.kt <<'EOF'
           package com.bortoman.enhancecam
@@ -800,20 +1174,157 @@ jobs:
               implementation("androidx.lifecycle:lifecycle-service:2.8.4")
           }
           EOF
-      - name: Build filter version
-        id: filt
+      - name: Create full version
+        run: |
+          cp -r EnhanceCam-B EnhanceCam-A
+          cd EnhanceCam-A
+          mkdir -p app/src/main/java/com/bortoman/enhancecam
+          cat > app/src/main/java/com/bortoman/enhancecam/VideoBoost.kt <<'EOF'
+          package com.bortoman.enhancecam
+
+          import android.content.ContentValues
+          import android.content.Context
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Handler
+          import android.os.Looper
+          import android.provider.MediaStore
+          import androidx.media3.common.Effect
+          import androidx.media3.common.MediaItem
+          import androidx.media3.effect.Contrast
+          import androidx.media3.effect.HslAdjustment
+          import androidx.media3.effect.Presentation
+          import androidx.media3.transformer.Composition
+          import androidx.media3.transformer.EditedMediaItem
+          import androidx.media3.transformer.Effects
+          import androidx.media3.transformer.ExportException
+          import androidx.media3.transformer.ExportResult
+          import androidx.media3.transformer.Transformer
+          import java.io.File
+          import java.text.SimpleDateFormat
+          import java.util.Locale
+
+          object VideoBoost {
+              fun available(): Boolean = true
+
+              fun process(ctx: Context, src: Uri, up4k: Boolean, done: (Uri?) -> Unit) {
+                  try {
+                      val tmp = File(ctx.cacheDir, "boost_" + System.currentTimeMillis() + ".mp4")
+                      val fx = mutableListOf<Effect>()
+                      fx.add(HslAdjustment.Builder().adjustSaturation(30f).build())
+                      fx.add(Contrast(0.15f))
+                      if (up4k) fx.add(Presentation.createForHeight(2160))
+                      val item = EditedMediaItem.Builder(MediaItem.fromUri(src))
+                          .setEffects(Effects(listOf(), fx))
+                          .build()
+                      val main = Handler(Looper.getMainLooper())
+                      val t = Transformer.Builder(ctx)
+                          .addListener(object : Transformer.Listener {
+                              override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                                  Thread {
+                                      val out = save(ctx, tmp)
+                                      main.post { done(out) }
+                                  }.start()
+                              }
+
+                              override fun onError(
+                                  composition: Composition,
+                                  exportResult: ExportResult,
+                                  exportException: ExportException
+                              ) {
+                                  tmp.delete()
+                                  done(null)
+                              }
+                          })
+                          .build()
+                      t.start(item, tmp.absolutePath)
+                  } catch (e: Throwable) {
+                      done(null)
+                  }
+              }
+
+              private fun save(ctx: Context, f: File): Uri? {
+                  try {
+                      val name = "EnhanceCam_color_" +
+                          SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
+                      val cv = ContentValues()
+                      cv.put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                      cv.put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                      if (Build.VERSION.SDK_INT >= 29) {
+                          cv.put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/EnhanceCam")
+                      }
+                      val cr = ctx.contentResolver
+                      val uri = cr.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv) ?: return null
+                      cr.openOutputStream(uri)?.use { out -> f.inputStream().use { it.copyTo(out) } }
+                      f.delete()
+                      return uri
+                  } catch (e: Throwable) {
+                      return null
+                  }
+              }
+          }
+          EOF
+          mkdir -p app
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.bortoman.enhancecam"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.bortoman.enhancecam"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("androidx.camera:camera-core:1.3.4")
+              implementation("androidx.camera:camera-camera2:1.3.4")
+              implementation("androidx.camera:camera-lifecycle:1.3.4")
+              implementation("androidx.camera:camera-video:1.3.4")
+              implementation("androidx.camera:camera-view:1.3.4")
+              implementation("androidx.camera:camera-effects:1.3.4")
+              implementation("androidx.media3:media3-transformer:1.4.1")
+              implementation("androidx.media3:media3-effect:1.4.1")
+              implementation("androidx.media3:media3-common:1.4.1")
+              implementation("androidx.lifecycle:lifecycle-service:2.8.4")
+          }
+          EOF
+      - name: Build full version
+        id: a
         continue-on-error: true
-        run: cd EnhanceCam-F && gradle assembleDebug --no-daemon
-      - name: Build basic version (fallback)
-        if: steps.filt.outcome != 'success'
+        run: cd EnhanceCam-A && gradle assembleDebug --no-daemon
+      - name: Build filter version
+        id: b
+        if: steps.a.outcome != 'success'
+        continue-on-error: true
+        run: cd EnhanceCam-B && gradle assembleDebug --no-daemon
+      - name: Build basic version
+        if: steps.a.outcome != 'success' && steps.b.outcome != 'success'
         run: cd EnhanceCam && gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
-        if: steps.filt.outcome == 'success'
+        if: steps.a.outcome == 'success'
         with:
-          name: EnhanceCam-APK-filter-version
-          path: EnhanceCam-F/app/build/outputs/apk/debug/app-debug.apk
+          name: EnhanceCam-APK-full
+          path: EnhanceCam-A/app/build/outputs/apk/debug/app-debug.apk
       - uses: actions/upload-artifact@v4
-        if: steps.filt.outcome != 'success'
+        if: steps.a.outcome != 'success' && steps.b.outcome == 'success'
+        with:
+          name: EnhanceCam-APK-filters
+          path: EnhanceCam-B/app/build/outputs/apk/debug/app-debug.apk
+      - uses: actions/upload-artifact@v4
+        if: steps.a.outcome != 'success' && steps.b.outcome != 'success'
         with:
           name: EnhanceCam-APK-basic
           path: EnhanceCam/app/build/outputs/apk/debug/app-debug.apk
