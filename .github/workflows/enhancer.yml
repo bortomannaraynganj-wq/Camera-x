@@ -1,0 +1,613 @@
+name: Build Video Enhancer
+on:
+  push:
+    paths: ['.github/workflows/enhancer.yml']
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+      - name: Create project files
+        run: |
+          mkdir -p VideoEnhancer && cd VideoEnhancer
+          mkdir -p .
+          cat > settings.gradle.kts <<'EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "VideoEnhancer"
+          include(":app")
+          EOF
+          mkdir -p .
+          cat > build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application") version "8.5.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.24" apply false
+          }
+          EOF
+          mkdir -p .
+          cat > gradle.properties <<'EOF'
+          android.useAndroidX=true
+          org.gradle.jvmargs=-Xmx2g
+          EOF
+          mkdir -p app
+          cat > app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+          android {
+              namespace = "com.bortoman.videoenhancer"
+              compileSdk = 34
+              defaultConfig {
+                  applicationId = "com.bortoman.videoenhancer"
+                  minSdk = 24
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions { jvmTarget = "17" }
+          }
+          dependencies {
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.appcompat:appcompat:1.7.0")
+              implementation("androidx.media3:media3-transformer:1.4.1")
+              implementation("androidx.media3:media3-effect:1.4.1")
+              implementation("androidx.media3:media3-common:1.4.1")
+          }
+          EOF
+          mkdir -p app/src/main
+          cat > app/src/main/AndroidManifest.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+              <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+              <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+              <uses-permission android:name="android.permission.WAKE_LOCK" />
+              <application
+                  android:label="Video Enhancer"
+                  android:largeHeap="true"
+                  android:theme="@style/AppTheme">
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+                  <service
+                      android:name=".ExportService"
+                      android:exported="false"
+                      android:foregroundServiceType="dataSync" />
+              </application>
+          </manifest>
+          EOF
+          mkdir -p app/src/main/res/values
+          cat > app/src/main/res/values/themes.xml <<'EOF'
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar" />
+          </resources>
+          EOF
+          mkdir -p app/src/main/res/layout
+          cat > app/src/main/res/layout/activity_main.xml <<'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+              android:layout_width="match_parent"
+              android:layout_height="match_parent">
+
+              <LinearLayout
+                  android:layout_width="match_parent"
+                  android:layout_height="wrap_content"
+                  android:orientation="vertical"
+                  android:padding="20dp">
+
+                  <TextView
+                      android:id="@+id/title"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:paddingTop="24dp"
+                      android:textSize="24sp"
+                      android:textStyle="bold" />
+
+                  <TextView
+                      android:id="@+id/note"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:paddingBottom="16dp"
+                      android:paddingTop="8dp"
+                      android:textSize="13sp" />
+
+                  <Button
+                      android:id="@+id/pickBtn"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content" />
+
+                  <Button
+                      android:id="@+id/resBtn"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content" />
+
+                  <Button
+                      android:id="@+id/colorBtn"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content" />
+
+                  <Button
+                      android:id="@+id/startBtn"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content" />
+
+                  <ProgressBar
+                      android:id="@+id/bar"
+                      style="?android:attr/progressBarStyleHorizontal"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:layout_marginTop="12dp"
+                      android:max="100"
+                      android:visibility="invisible" />
+
+                  <TextView
+                      android:id="@+id/status"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:padding="8dp"
+                      android:textSize="15sp" />
+
+                  <Button
+                      android:id="@+id/cancelBtn"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content" />
+
+                  <Button
+                      android:id="@+id/openBtn"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content" />
+              </LinearLayout>
+          </ScrollView>
+          EOF
+          mkdir -p app/src/main/java/com/bortoman/videoenhancer
+          cat > app/src/main/java/com/bortoman/videoenhancer/MainActivity.kt <<'EOF'
+          package com.bortoman.videoenhancer
+
+          import android.Manifest
+          import android.content.ActivityNotFoundException
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.net.Uri
+          import android.os.Build
+          import android.os.Bundle
+          import android.view.View
+          import android.widget.Button
+          import android.widget.ProgressBar
+          import android.widget.TextView
+          import android.widget.Toast
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.content.ContextCompat
+
+          class MainActivity : AppCompatActivity() {
+
+              private var input: Uri? = null
+              private var hint = "ভিডিও বাছাই করুন"
+              private var resIndex = 0
+              private var colorIndex = 1
+              private val resNames = listOf("4K (2160p)", "2K (1440p)", "Full HD (1080p)")
+              private val colorNames = listOf("স্বাভাবিক", "উজ্জ্বল", "অতি উজ্জ্বল")
+
+              private lateinit var pickBtn: Button
+              private lateinit var resBtn: Button
+              private lateinit var colorBtn: Button
+              private lateinit var startBtn: Button
+              private lateinit var cancelBtn: Button
+              private lateinit var openBtn: Button
+              private lateinit var bar: ProgressBar
+              private lateinit var status: TextView
+
+              private val picker = registerForActivityResult(ActivityResultContracts.GetContent()) { u ->
+                  if (u != null) {
+                      input = u
+                      ExportService.resultUri = null
+                      ExportService.message = ""
+                      hint = "ভিডিও বাছাই হয়েছে। এবার শুরু করুন চাপুন।"
+                      render()
+                  }
+              }
+
+              private val notifPerm = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+                  setContentView(R.layout.activity_main)
+                  pickBtn = findViewById(R.id.pickBtn)
+                  resBtn = findViewById(R.id.resBtn)
+                  colorBtn = findViewById(R.id.colorBtn)
+                  startBtn = findViewById(R.id.startBtn)
+                  cancelBtn = findViewById(R.id.cancelBtn)
+                  openBtn = findViewById(R.id.openBtn)
+                  bar = findViewById(R.id.bar)
+                  status = findViewById(R.id.status)
+                  findViewById<TextView>(R.id.title).text = "Video Enhancer"
+                  findViewById<TextView>(R.id.note).text =
+                      "অফলাইনে চলে। ভিডিও বড় (4K/2K) করে রং উজ্জ্বল করে। এটা আসল AI আপস্কেল নয়, তাই নতুন ডিটেইল তৈরি হয় না। 4K আউটপুট ফোনের চিপের ওপর নির্ভর করে। প্রসেস শুরু হলে অ্যাপ বন্ধ করলেও বা স্ক্রিন অফ রাখলেও চলতে থাকে এবং শেষে নিজে সেভ হয়।"
+
+                  pickBtn.text = "ভিডিও বাছাই করুন"
+                  startBtn.text = "শুরু করুন"
+                  cancelBtn.text = "বাতিল"
+                  openBtn.text = "ফলাফল দেখুন"
+                  resBtn.text = "আউটপুট: " + resNames[resIndex]
+                  colorBtn.text = "রং: " + colorNames[colorIndex]
+
+                  pickBtn.setOnClickListener { picker.launch("video/*") }
+                  resBtn.setOnClickListener {
+                      resIndex = (resIndex + 1) % resNames.size
+                      resBtn.text = "আউটপুট: " + resNames[resIndex]
+                  }
+                  colorBtn.setOnClickListener {
+                      colorIndex = (colorIndex + 1) % colorNames.size
+                      colorBtn.text = "রং: " + colorNames[colorIndex]
+                  }
+                  startBtn.setOnClickListener {
+                      val src = input
+                      if (src != null) {
+                          val i = Intent(this, ExportService::class.java)
+                              .setAction(ExportService.ACTION_START)
+                              .setData(src)
+                              .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                              .putExtra("res", resIndex)
+                              .putExtra("color", colorIndex)
+                          ContextCompat.startForegroundService(this, i)
+                      }
+                  }
+                  cancelBtn.setOnClickListener {
+                      startService(
+                          Intent(this, ExportService::class.java).setAction(ExportService.ACTION_CANCEL)
+                      )
+                  }
+                  openBtn.setOnClickListener {
+                      val u = ExportService.resultUri
+                      if (u != null) {
+                          try {
+                              startActivity(
+                                  Intent(Intent.ACTION_VIEW)
+                                      .setDataAndType(u, "video/mp4")
+                                      .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                              )
+                          } catch (e: ActivityNotFoundException) {
+                              Toast.makeText(this, "দেখার অ্যাপ পাওয়া যায়নি", Toast.LENGTH_SHORT).show()
+                          }
+                      }
+                  }
+
+                  if (Build.VERSION.SDK_INT >= 33 &&
+                      ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+                      PackageManager.PERMISSION_GRANTED
+                  ) {
+                      notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+                  }
+                  render()
+              }
+
+              override fun onStart() {
+                  super.onStart()
+                  ExportService.listener = { runOnUiThread { render() } }
+                  render()
+              }
+
+              override fun onStop() {
+                  super.onStop()
+                  ExportService.listener = null
+              }
+
+              private fun render() {
+                  val busy = ExportService.running
+                  pickBtn.isEnabled = !busy
+                  resBtn.isEnabled = !busy
+                  colorBtn.isEnabled = !busy
+                  startBtn.isEnabled = !busy && input != null
+                  cancelBtn.isEnabled = busy
+                  bar.visibility = if (busy) View.VISIBLE else View.INVISIBLE
+                  bar.progress = ExportService.progress
+                  openBtn.visibility =
+                      if (!busy && ExportService.resultUri != null) View.VISIBLE else View.GONE
+                  status.text =
+                      if (busy || ExportService.message.isNotEmpty()) ExportService.message else hint
+              }
+          }
+          EOF
+          mkdir -p app/src/main/java/com/bortoman/videoenhancer
+          cat > app/src/main/java/com/bortoman/videoenhancer/ExportService.kt <<'EOF'
+          package com.bortoman.videoenhancer
+
+          import android.app.NotificationChannel
+          import android.app.NotificationManager
+          import android.app.PendingIntent
+          import android.app.Service
+          import android.content.ContentValues
+          import android.content.Intent
+          import android.content.pm.ServiceInfo
+          import android.media.MediaMetadataRetriever
+          import android.net.Uri
+          import android.app.Notification
+          import android.os.Build
+          import android.os.Handler
+          import android.os.IBinder
+          import android.os.Looper
+          import android.os.PowerManager
+          import android.provider.MediaStore
+          import androidx.core.app.NotificationCompat
+          import androidx.core.app.ServiceCompat
+          import androidx.media3.common.Effect
+          import androidx.media3.common.MediaItem
+          import androidx.media3.effect.Brightness
+          import androidx.media3.effect.Contrast
+          import androidx.media3.effect.HslAdjustment
+          import androidx.media3.effect.Presentation
+          import androidx.media3.transformer.Composition
+          import androidx.media3.transformer.EditedMediaItem
+          import androidx.media3.transformer.Effects
+          import androidx.media3.transformer.ExportException
+          import androidx.media3.transformer.ExportResult
+          import androidx.media3.transformer.ProgressHolder
+          import androidx.media3.transformer.Transformer
+          import java.io.File
+          import java.text.SimpleDateFormat
+          import java.util.Locale
+
+          class ExportService : Service() {
+
+              companion object {
+                  const val ACTION_START = "com.bortoman.videoenhancer.START"
+                  const val ACTION_CANCEL = "com.bortoman.videoenhancer.CANCEL"
+                  @Volatile var running = false
+                  @Volatile var progress = 0
+                  @Volatile var message = ""
+                  @Volatile var resultUri: Uri? = null
+                  var listener: (() -> Unit)? = null
+              }
+
+              private val heights = intArrayOf(2160, 1440, 1080)
+              private val handler = Handler(Looper.getMainLooper())
+              private val holder = ProgressHolder()
+              private var transformer: Transformer? = null
+              private var tmp: File? = null
+              private var wake: PowerManager.WakeLock? = null
+
+              private val poll = object : Runnable {
+                  override fun run() {
+                      val t = transformer
+                      if (t != null && t.getProgress(holder) != Transformer.PROGRESS_STATE_NOT_STARTED) {
+                          progress = holder.progress
+                          message = "প্রসেস হচ্ছে... " + progress + "%"
+                          getSystemService(NotificationManager::class.java)
+                              .notify(1, buildNotif(message, true, progress))
+                          listener?.invoke()
+                      }
+                      handler.postDelayed(this, 1000)
+                  }
+              }
+
+              override fun onBind(intent: Intent?): IBinder? = null
+
+              override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+                  if (intent?.action == ACTION_CANCEL) {
+                      cancel()
+                      return START_NOT_STICKY
+                  }
+                  enterForeground()
+                  val src = intent?.data
+                  if (running || src == null) {
+                      if (!running) {
+                          ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                          stopSelf()
+                      }
+                      return START_NOT_STICKY
+                  }
+                  running = true
+                  resultUri = null
+                  progress = 0
+                  message = "শুরু হচ্ছে..."
+                  listener?.invoke()
+
+                  val pm = getSystemService(PowerManager::class.java)
+                  val w = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "enh:export")
+                  w.acquire(3 * 60 * 60 * 1000L)
+                  wake = w
+
+                  val res = intent.getIntExtra("res", 0)
+                  val color = intent.getIntExtra("color", 1)
+                  val fx = mutableListOf<Effect>()
+                  when (color) {
+                      1 -> {
+                          fx.add(HslAdjustment.Builder().adjustSaturation(25f).build())
+                          fx.add(Contrast(0.12f))
+                      }
+                      2 -> {
+                          fx.add(HslAdjustment.Builder().adjustSaturation(45f).build())
+                          fx.add(Contrast(0.2f))
+                          fx.add(Brightness(0.03f))
+                      }
+                  }
+                  fx.add(Presentation.createForHeight(heights[res.coerceIn(0, 2)]))
+                  val out = File(cacheDir, "enh_" + System.currentTimeMillis() + ".mp4")
+                  tmp = out
+                  try {
+                      val item = EditedMediaItem.Builder(MediaItem.fromUri(src))
+                          .setEffects(Effects(listOf(), fx))
+                          .build()
+                      val t = Transformer.Builder(this)
+                          .addListener(object : Transformer.Listener {
+                              override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                                  onExported(out)
+                              }
+
+                              override fun onError(
+                                  composition: Composition,
+                                  exportResult: ExportResult,
+                                  exportException: ExportException
+                              ) {
+                                  fail(out, exportException.message)
+                              }
+                          })
+                          .build()
+                      transformer = t
+                      t.start(item, out.absolutePath)
+                      handler.post(poll)
+                  } catch (e: Throwable) {
+                      fail(out, e.message)
+                  }
+                  return START_NOT_STICKY
+              }
+
+              private fun enterForeground() {
+                  val nm = getSystemService(NotificationManager::class.java)
+                  if (Build.VERSION.SDK_INT >= 26) {
+                      nm.createNotificationChannel(
+                          NotificationChannel("exp", "Export", NotificationManager.IMPORTANCE_LOW)
+                      )
+                  }
+                  val type = if (Build.VERSION.SDK_INT >= 29) ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC else 0
+                  ServiceCompat.startForeground(this, 1, buildNotif("প্রসেস হচ্ছে...", true, 0), type)
+              }
+
+              private fun buildNotif(text: String, ongoing: Boolean, prog: Int): Notification {
+                  val cancel = PendingIntent.getService(
+                      this, 0,
+                      Intent(this, ExportService::class.java).setAction(ACTION_CANCEL),
+                      PendingIntent.FLAG_IMMUTABLE
+                  )
+                  val open = PendingIntent.getActivity(
+                      this, 1, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+                  )
+                  val b = NotificationCompat.Builder(this, "exp")
+                      .setSmallIcon(android.R.drawable.stat_sys_download)
+                      .setContentTitle("Video Enhancer")
+                      .setContentText(text)
+                      .setContentIntent(open)
+                      .setOngoing(ongoing)
+                      .setAutoCancel(!ongoing)
+                  if (ongoing) {
+                      b.setProgress(100, prog, prog <= 0)
+                      b.addAction(0, "বাতিল", cancel)
+                  }
+                  return b.build()
+              }
+
+              private fun onExported(out: File) {
+                  handler.removeCallbacks(poll)
+                  message = "সেভ হচ্ছে..."
+                  listener?.invoke()
+                  Thread {
+                      val size = readSize(out)
+                      val u = saveToGallery(out)
+                      out.delete()
+                      handler.post {
+                          if (u != null) {
+                              resultUri = u
+                              progress = 100
+                              message = "হয়েছে! গ্যালারির Movies/VideoEnhancer ফোল্ডারে সেভ হয়েছে।\nআউটপুট মাপ: " + size
+                          } else {
+                              message = "প্রসেস হয়েছে কিন্তু সেভ করা যায়নি"
+                          }
+                          endService(true)
+                      }
+                  }.start()
+              }
+
+              private fun fail(out: File?, why: String?) {
+                  handler.removeCallbacks(poll)
+                  out?.delete()
+                  message = "ব্যর্থ হয়েছে: " + (why ?: "অজানা সমস্যা") +
+                      "\nছোট আউটপুট (2K বা Full HD) বেছে আবার চেষ্টা করুন।"
+                  endService(true)
+              }
+
+              private fun cancel() {
+                  transformer?.cancel()
+                  handler.removeCallbacks(poll)
+                  tmp?.delete()
+                  message = "বাতিল করা হয়েছে"
+                  progress = 0
+                  endService(false)
+              }
+
+              private fun endService(notify: Boolean) {
+                  running = false
+                  wake?.let { if (it.isHeld) it.release() }
+                  ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+                  if (notify) {
+                      getSystemService(NotificationManager::class.java)
+                          .notify(2, buildNotif(message.lineSequence().first(), false, 0))
+                  }
+                  listener?.invoke()
+                  stopSelf()
+              }
+
+              private fun readSize(f: File): String {
+                  val r = MediaMetadataRetriever()
+                  try {
+                      r.setDataSource(f.absolutePath)
+                      var w = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH)?.toIntOrNull() ?: 0
+                      var h = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT)?.toIntOrNull() ?: 0
+                      val rot = r.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION)?.toIntOrNull() ?: 0
+                      if (rot == 90 || rot == 270) {
+                          val x = w
+                          w = h
+                          h = x
+                      }
+                      return w.toString() + " x " + h
+                  } catch (e: Throwable) {
+                      return "জানা যায়নি"
+                  } finally {
+                      r.release()
+                  }
+              }
+
+              private fun saveToGallery(f: File): Uri? {
+                  try {
+                      val name = "Enhanced_" +
+                          SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(System.currentTimeMillis())
+                      val cv = ContentValues()
+                      cv.put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                      cv.put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                      if (Build.VERSION.SDK_INT >= 29) {
+                          cv.put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/VideoEnhancer")
+                      }
+                      val cr = contentResolver
+                      val uri = cr.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, cv) ?: return null
+                      cr.openOutputStream(uri)?.use { out -> f.inputStream().use { it.copyTo(out) } }
+                      return uri
+                  } catch (e: Throwable) {
+                      return null
+                  }
+              }
+          }
+          EOF
+      - name: Build APK
+        run: |
+          cd VideoEnhancer
+          set +e
+          gradle assembleDebug --no-daemon 2>&1 | tee ../log.txt
+          code=${PIPESTATUS[0]}
+          grep -E '^e: ' ../log.txt | head -12 | sed 's/^/::error::/'
+          exit $code
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VideoEnhancer-APK
+          path: VideoEnhancer/app/build/outputs/apk/debug/app-debug.apk
